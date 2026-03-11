@@ -1,131 +1,162 @@
-'use strict';
-const os = require('os');
-const hasFlag = require('has-flag');
+/*!
+ * range-parser
+ * Copyright(c) 2012-2014 TJ Holowaychuk
+ * Copyright(c) 2015-2016 Douglas Christopher Wilson
+ * MIT Licensed
+ */
 
-const env = process.env;
+'use strict'
 
-let forceColor;
-if (hasFlag('no-color') ||
-	hasFlag('no-colors') ||
-	hasFlag('color=false')) {
-	forceColor = false;
-} else if (hasFlag('color') ||
-	hasFlag('colors') ||
-	hasFlag('color=true') ||
-	hasFlag('color=always')) {
-	forceColor = true;
-}
-if ('FORCE_COLOR' in env) {
-	forceColor = env.FORCE_COLOR.length === 0 || parseInt(env.FORCE_COLOR, 10) !== 0;
-}
+/**
+ * Module exports.
+ * @public
+ */
 
-function translateLevel(level) {
-	if (level === 0) {
-		return false;
-	}
+module.exports = rangeParser
 
-	return {
-		level,
-		hasBasic: true,
-		has256: level >= 2,
-		has16m: level >= 3
-	};
-}
+/**
+ * Parse "Range" header `str` relative to the given file `size`.
+ *
+ * @param {Number} size
+ * @param {String} str
+ * @param {Object} [options]
+ * @return {Array}
+ * @public
+ */
 
-function supportsColor(stream) {
-	if (forceColor === false) {
-		return 0;
-	}
+function rangeParser (size, str, options) {
+  if (typeof str !== 'string') {
+    throw new TypeError('argument str must be a string')
+  }
 
-	if (hasFlag('color=16m') ||
-		hasFlag('color=full') ||
-		hasFlag('color=truecolor')) {
-		return 3;
-	}
+  var index = str.indexOf('=')
 
-	if (hasFlag('color=256')) {
-		return 2;
-	}
+  if (index === -1) {
+    return -2
+  }
 
-	if (stream && !stream.isTTY && forceColor !== true) {
-		return 0;
-	}
+  // split the range string
+  var arr = str.slice(index + 1).split(',')
+  var ranges = []
 
-	const min = forceColor ? 1 : 0;
+  // add ranges type
+  ranges.type = str.slice(0, index)
 
-	if (process.platform === 'win32') {
-		// Node.js 7.5.0 is the first version of Node.js to include a patch to
-		// libuv that enables 256 color output on Windows. Anything earlier and it
-		// won't work. However, here we target Node.js 8 at minimum as it is an LTS
-		// release, and Node.js 7 is not. Windows 10 build 10586 is the first Windows
-		// release that supports 256 colors. Windows 10 build 14931 is the first release
-		// that supports 16m/TrueColor.
-		const osRelease = os.release().split('.');
-		if (
-			Number(process.versions.node.split('.')[0]) >= 8 &&
-			Number(osRelease[0]) >= 10 &&
-			Number(osRelease[2]) >= 10586
-		) {
-			return Number(osRelease[2]) >= 14931 ? 3 : 2;
-		}
+  // parse all ranges
+  for (var i = 0; i < arr.length; i++) {
+    var range = arr[i].split('-')
+    var start = parseInt(range[0], 10)
+    var end = parseInt(range[1], 10)
 
-		return 1;
-	}
+    // -nnn
+    if (isNaN(start)) {
+      start = size - end
+      end = size - 1
+    // nnn-
+    } else if (isNaN(end)) {
+      end = size - 1
+    }
 
-	if ('CI' in env) {
-		if (['TRAVIS', 'CIRCLECI', 'APPVEYOR', 'GITLAB_CI'].some(sign => sign in env) || env.CI_NAME === 'codeship') {
-			return 1;
-		}
+    // limit last-byte-pos to current length
+    if (end > size - 1) {
+      end = size - 1
+    }
 
-		return min;
-	}
+    // invalid or unsatisifiable
+    if (isNaN(start) || isNaN(end) || start > end || start < 0) {
+      continue
+    }
 
-	if ('TEAMCITY_VERSION' in env) {
-		return /^(9\.(0*[1-9]\d*)\.|\d{2,}\.)/.test(env.TEAMCITY_VERSION) ? 1 : 0;
-	}
+    // add range
+    ranges.push({
+      start: start,
+      end: end
+    })
+  }
 
-	if (env.COLORTERM === 'truecolor') {
-		return 3;
-	}
+  if (ranges.length < 1) {
+    // unsatisifiable
+    return -1
+  }
 
-	if ('TERM_PROGRAM' in env) {
-		const version = parseInt((env.TERM_PROGRAM_VERSION || '').split('.')[0], 10);
-
-		switch (env.TERM_PROGRAM) {
-			case 'iTerm.app':
-				return version >= 3 ? 3 : 2;
-			case 'Apple_Terminal':
-				return 2;
-			// No default
-		}
-	}
-
-	if (/-256(color)?$/i.test(env.TERM)) {
-		return 2;
-	}
-
-	if (/^screen|^xterm|^vt100|^vt220|^rxvt|color|ansi|cygwin|linux/i.test(env.TERM)) {
-		return 1;
-	}
-
-	if ('COLORTERM' in env) {
-		return 1;
-	}
-
-	if (env.TERM === 'dumb') {
-		return min;
-	}
-
-	return min;
+  return options && options.combine
+    ? combineRanges(ranges)
+    : ranges
 }
 
-function getSupportLevel(stream) {
-	const level = supportsColor(stream);
-	return translateLevel(level);
+/**
+ * Combine overlapping & adjacent ranges.
+ * @private
+ */
+
+function combineRanges (ranges) {
+  var ordered = ranges.map(mapWithIndex).sort(sortByRangeStart)
+
+  for (var j = 0, i = 1; i < ordered.length; i++) {
+    var range = ordered[i]
+    var current = ordered[j]
+
+    if (range.start > current.end + 1) {
+      // next range
+      ordered[++j] = range
+    } else if (range.end > current.end) {
+      // extend range
+      current.end = range.end
+      current.index = Math.min(current.index, range.index)
+    }
+  }
+
+  // trim ordered array
+  ordered.length = j + 1
+
+  // generate combined range
+  var combined = ordered.sort(sortByRangeIndex).map(mapWithoutIndex)
+
+  // copy ranges type
+  combined.type = ranges.type
+
+  return combined
 }
 
-module.exports = {
-	supportsColor: getSupportLevel,
-	stdout: getSupportLevel(process.stdout),
-	stderr: getSupportLevel(process.stderr)
-};
+/**
+ * Map function to add index value to ranges.
+ * @private
+ */
+
+function mapWithIndex (range, index) {
+  return {
+    start: range.start,
+    end: range.end,
+    index: index
+  }
+}
+
+/**
+ * Map function to remove index value from ranges.
+ * @private
+ */
+
+function mapWithoutIndex (range) {
+  return {
+    start: range.start,
+    end: range.end
+  }
+}
+
+/**
+ * Sort function to sort ranges by index.
+ * @private
+ */
+
+function sortByRangeIndex (a, b) {
+  return a.index - b.index
+}
+
+/**
+ * Sort function to sort ranges by start position.
+ * @private
+ */
+
+function sortByRangeStart (a, b) {
+  return a.start - b.start
+}
