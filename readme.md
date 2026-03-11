@@ -1,70 +1,66 @@
-# has-flag [![Build Status](https://travis-ci.org/sindresorhus/has-flag.svg?branch=master)](https://travis-ci.org/sindresorhus/has-flag)
+# supports-color [![Build Status](https://travis-ci.org/chalk/supports-color.svg?branch=master)](https://travis-ci.org/chalk/supports-color)
 
-> Check if [`argv`](https://nodejs.org/docs/latest/api/process.html#process_process_argv) has a specific flag
-
-Correctly stops looking after an `--` argument terminator.
+> Detect whether a terminal supports color
 
 
 ## Install
 
 ```
-$ npm install has-flag
+$ npm install supports-color
 ```
 
 
 ## Usage
 
 ```js
-// foo.js
-const hasFlag = require('has-flag');
+const supportsColor = require('supports-color');
 
-hasFlag('unicorn');
-//=> true
+if (supportsColor.stdout) {
+	console.log('Terminal stdout supports color');
+}
 
-hasFlag('--unicorn');
-//=> true
+if (supportsColor.stdout.has256) {
+	console.log('Terminal stdout supports 256 colors');
+}
 
-hasFlag('f');
-//=> true
-
-hasFlag('-f');
-//=> true
-
-hasFlag('foo=bar');
-//=> true
-
-hasFlag('foo');
-//=> false
-
-hasFlag('rainbow');
-//=> false
-```
-
-```
-$ node foo.js -f --unicorn --foo=bar -- --rainbow
+if (supportsColor.stderr.has16m) {
+	console.log('Terminal stderr supports 16 million colors (truecolor)');
+}
 ```
 
 
 ## API
 
-### hasFlag(flag, [argv])
+Returns an `Object` with a `stdout` and `stderr` property for testing either streams. Each property is an `Object`, or `false` if color is not supported.
 
-Returns a boolean for whether the flag exists.
+The `stdout`/`stderr` objects specifies a level of support for color through a `.level` property and a corresponding flag:
 
-#### flag
+- `.level = 1` and `.hasBasic = true`: Basic color support (16 colors)
+- `.level = 2` and `.has256 = true`: 256 color support
+- `.level = 3` and `.has16m = true`: Truecolor support (16 million colors)
 
-Type: `string`
 
-CLI flag to look for. The `--` prefix is optional.
+## Info
 
-#### argv
+It obeys the `--color` and `--no-color` CLI flags.
 
-Type: `string[]`<br>
-Default: `process.argv`
+Can be overridden by the user with the flags `--color` and `--no-color`. For situations where using `--color` is not possible, add the environment variable `FORCE_COLOR=1` to forcefully enable color or `FORCE_COLOR=0` to forcefully disable. The use of `FORCE_COLOR` overrides all other color support checks.
 
-CLI arguments.
+Explicit 256/Truecolor mode can be enabled using the `--color=256` and `--color=16m` flags, respectively.
+
+
+## Related
+
+- [supports-color-cli](https://github.com/chalk/supports-color-cli) - CLI for this module
+- [chalk](https://github.com/chalk/chalk) - Terminal string styling done right
+
+
+## Maintainers
+
+- [Sindre Sorhus](https://github.com/sindresorhus)
+- [Josh Junon](https://github.com/qix-)
 
 
 ## License
 
-MIT © [Sindre Sorhus](https://sindresorhus.com)
+MIT
